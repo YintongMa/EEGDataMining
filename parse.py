@@ -114,13 +114,12 @@ for e in event_list:
         epoch_list.append(epoch)
 
 
-
 x = np.zeros((len(epoch_list), 14, 25))
 y = np.zeros(len(epoch_list))
 
 for i in range(len(epoch_list)):
     e = epoch_list[i]
-    y = np.append(y, e['code'])
+    y[i] = e['code']
     features = extract_features(e['data'])
     x[i] = features
 
