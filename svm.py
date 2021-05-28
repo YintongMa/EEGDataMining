@@ -1,79 +1,118 @@
 import numpy as np
 from functools import lru_cache
 
-# class KP:
-#     def __init__(self):
-#         self._x = None
-#         self._alpha = self._b = self._kernel = None
-#
-#     @staticmethod
-#     def _poly(x, y, p=4):
-#         return (x.dot(y.T) + 1) ** p
-#
-#     @staticmethod
-#     def _rbf(x, y, gamma):
-#         return np.exp(-gamma * np.sum((x[..., None, :] - y) ** 2, axis=2))
-#
-#     def fit(self, x, y, kernel="rbf", p=None, gamma=None, c=1, lr=0.0001, batch_size=128, epoch=10000):
-#         x, y = np.asarray(x, np.float32), np.asarray(y, np.float32)
-#         if kernel == "poly":
-#             p = 4 if p is None else p
-#             self._kernel = lambda x_, y_: self._poly(x_, y_, p)
-#         elif kernel == "rbf":
-#             gamma = 1 / x.shape[1] if gamma is None else gamma
-#             self._kernel = lambda x_, y_: self._rbf(x_, y_, gamma)
-#         else:
-#             raise NotImplementedError("Kernel '{}' has not defined".format(kernel))
-#         self._alpha = np.zeros(len(x))
-#         self._b = 0.
-#         self._x = x
-#         k_mat = self._kernel(x, x)
-#         k_mat_diag = np.diag(k_mat)
-#         for _ in range(epoch):
-#             self._alpha -= lr * (np.sum(self._alpha * k_mat, axis=1) + self._alpha * k_mat_diag) * 0.5
-#             indices = np.random.permutation(len(y))[:batch_size]
-#             k_mat_batch, y_batch = k_mat[indices], y[indices]
-#             err = 1 - y_batch * (k_mat_batch.dot(self._alpha) + self._b)
-#             if np.max(err) <= 0:
-#                 continue
-#             mask = err > 0
-#             delta = c * lr * y_batch[mask]
-#             self._alpha += np.sum(delta[..., None] * k_mat_batch[mask], axis=0)
-#             self._b += np.sum(delta)
-#
-#     def predict(self, x, raw=False):
-#         x = np.atleast_2d(x).astype(np.float32)
-#         k_mat = self._kernel(self._x, x)
-#         y_pred = self._alpha.dot(k_mat) + self._b
-#         if raw:
-#             return y_pred
-#         return np.sign(y_pred).astype(np.float32)
+class svm_new():
+    def __init__(self, kernel="rbf", lmd=1e-1, sigma=0.1, max_iter=100):
+        self.kernel = kernel
+        self.lmd = lmd
+        self.sigma = sigma
+        self.max_iter = max_iter
+        self.alpha = 0
+        self.w = 0
+
+
+    def kernel_matrix(self, X):
+        if self.kernel == "linear":
+            return X.dot(X.T)
+        elif self.kernel == "rbf":
+            return X.dot(X.T)
+        else:
+            row, col = X.shape
+            GassMatrix = np.zeros(shape=(row, row))
+            i = 0
+            for v_i in X:
+                j = 0
+                for v_j in X:
+                    GassMatrix[i, j] = Gaussian(v_i.T, v_j.T, self.sigma)
+                    j += 1
+                i += 1
+            return GassMatrix
+
+    def Gaussian(self, x, z):
+        norm = np.linalg.norm(x - z)**2
+        up = ((norm**2)*-1)
+        down = (2 * (self.sigma ** 2))
+        return math.exp(up/down)
+
+    def KRR(self, K,y):
+        m,n = K.shape
+        return np.linalg.inv(K + np.dot(self.lmd,np.identity(m))).dot(y)
+
+
+    def fit(self, X, y, lamb=0.01, alpha_init=None, eta=0.01, max_step=1000):
+        """
+        Compute the optimal alpha for an SVM using the kernel matrix K
+        and observations y.
+        alpha_init : our initial value for alpha
+        eta: step size
+        """
+
+        K = self.kernel_matrix(X)
+        n = len(y)
+        if alpha_init is None:
+            alpha_init = np.zeros(n)
+        assert K.shape == (n, n)
+        assert len(alpha_init) == n
+        # make sure all labels are +/ - 1 and that we have
+        # both positive and negative labels
+        assert (np.unique(y) == np.array([-1, 1])).all()
+        alpha_k = alpha_init
+        for k in range(max_step):
+            print(k)
+            alpha_old = alpha_k
+            ## your code here to update alpha_k
+            res = np.zeros(n)
+            for i in range(n):
+                if y[i] * K[:, i].T.dot(alpha_old) < 1:
+                    res += np.identity(n).dot(-y[i] * K[:, i])
+            res += 2 * lamb * K.dot(alpha_old)
+
+            alpha_k = alpha_old - eta * res
+            # # compute y_est
+            # y_est = (K + lamb * np.identity(n)).dot(alpha_k)
+            # accuracy = np.mean((y_est > 0) == (y > 0))
+            alpha_norm_change = np.linalg.norm(alpha_k - alpha_old)
+            # print("k = {:5}".format(k) + ",alpha_norm_change = {:3.2f}".format(alpha_norm_change) +
+            #       ",accuracy = {:3.1f}".format(accuracy * 100))
+            if alpha_norm_change < 1e-1:
+                break
+        self.alpha = alpha_k
+        self.w = X.T.dot(alpha_k)
+        return alpha_k, w
+
+    def predict (self, X):
+        y_predict = []
+        for s in X.dot(self.w.T):
+            if s[0] >= 0.:
+                y_predict.append(1)
+            else:
+                y_predict.append(-1)
+        return np.array(y_predict)
+
 
 class svm():
 
     def __init__(self,
                  kernel="rbf", lmd=1e-1, gamma=0.1, bias=1.0, max_iter=100):
-        if kernel not in self.__kernel_dict:
-            print(kernel + " kernel does not exist!\nUse rbf kernel.")
-            kernel = "rbf"
         if kernel == "rbf":
-            def kernel_func(x, y):
-                return self.__kernel_dict[kernel](x, y, gamma=gamma)
+            print("use rbf kernel")
+            self.kernel = self.__gaussian_kernel
         else:
-            kernel_func = self.__kernel_dict[kernel]
-        self.kernel = kernel_func
+            print("use linear kernel")
+            self.kernel = self.__linear_kernel
+
         self.lmd = lmd
         self.bias = bias
+        self.gamma = gamma
         self.max_iter = max_iter
 
-    def __linear_kernel(x, y):
+    def __linear_kernel(self, x, y):
         return np.dot(x, y)
 
-    def __gaussian_kernel(x, y, gamma):
+    def __gaussian_kernel(self,x, y):
         diff = x - y
-        return np.exp(-gamma * np.dot(diff, diff))
+        return np.exp(-self.gamma * np.dot(diff, diff))
 
-    __kernel_dict = {"linear": __linear_kernel, "rbf": __gaussian_kernel}
 
     def fit(self, X, y):
         def update_alpha(alpha, t):
@@ -82,9 +121,13 @@ class svm():
             it = np.random.randint(low=0, high=data_size)
             x_it = self.X_with_bias[it]
             y_it = self.y[it]
-
-            # alpha[k] = alpha[k] + eta[k] * (1 - myData.loc[k, 2] * sum(alpha * myData.loc[:, 2] * K[:, k]))
-            if (y_it * (1. / (self.lmd * t)) * sum([alpha_j * y_it * self.kernel(x_it, x_j) for x_j, alpha_j in zip(self.X_with_bias, alpha)])) < 1.:
+            res = 0
+            k = 0
+            for x_j, alpha_j in zip(self.X_with_bias, alpha):
+                print(k)
+                k += 1
+                res += alpha_j * y_it * self.kernel(x_it, x_j)
+            if (y_it * (1. / (self.lmd * t)) * res) < 1.:
                 new_alpha[it] += 1
             return new_alpha
 
@@ -116,11 +159,168 @@ class svm():
             else:
                 y_predict.append(-1)
         return y_predict
+import numpy as np
+import pandas as pd
+import sklearn
 
+from sklearn.decomposition import PCA
+from sklearn.utils import shuffle
+
+# Load data with specific id number
+def load_data(id_num):
+    data = np.load("/content/eeg_data.npz")
+    X = data['x']
+    y = data['y']
+
+    index = [i for i in range(len(y)) if y[i] == id_num]
+
+    output_data = []
+    output_label = []
+
+    for i in index:
+        output_data.append(X[i])
+        output_label.append(y[i])
+
+    return output_data, output_label
+
+
+# Compare seeing one number with rest
+def binary_all_channel(data, label, id_num):
+    if len(data) != len(label):
+        print("Something is wrong here")
+        return
+
+    output_data = []
+    output_label = []
+
+    for i in range(len(label)):
+        if label[i] != id_num and label[i] != -1:
+            print("Something is wrong here")
+            break
+        if label[i] != -1:
+            output_label.append([1])
+        else:
+            output_label.append([-1])
+
+        feature = np.concatenate(data[i])
+        feature = np.nan_to_num(feature)
+        output_data.append(feature)
+
+    return output_data, output_label
+
+
+def predict(X, w, mode):
+    raw_val = np.dot(X.transpose(), w)
+
+    if mode == "binary":
+        if raw_val >= 0:
+            return 1
+        if raw_val < 0:
+            return -1
+    if mode == "multiclass":
+        return round(raw_val[0])
+
+
+def cross_val(X, y, batch_size):
+    error_arr = []
+    subset_num = int(len(X) / batch_size) - 1
+    for i in range(subset_num):
+        print("batch: " + str(i))
+        error = 0
+        X_test = X[i * batch_size: (i + 1) * batch_size]
+        y_test = y[i * batch_size: (i + 1) * batch_size]
+        X_train = np.concatenate((X[0: i * batch_size], X[(i + 1) * batch_size: len(X)]))
+        y_train = np.concatenate((y[0: i * batch_size], y[(i + 1) * batch_size: len(y)]))
+
+        print('running svm linear')
+        cf = svm(kernel="linear")
+        cf.fit(X_train, y_train)
+
+        print('predicting')
+        result = cf.predict((X_test))
+        for j in range(len(result)):
+            if result[j] != y_test[j]:
+                error = error + 1
+        error_rate = error / batch_size
+        error_arr.append(error_rate)
+
+        print("error rate is " + str(error_rate))
+        print()
+
+        error = 0
+        print('running svm rbf')
+        cf = svm(kernel="rbf")
+        cf.fit(X_train, y_train)
+
+        print('predicting')
+        result = cf.predict((X_test))
+        for j in range(len(result)):
+            if result[j] != y_test[j]:
+                error = error + 1
+        error_rate = error / batch_size
+
+        print("error rate is " + str(error_rate))
+        print()
+
+        error = 0
+        print('running base svm linear')
+        from sklearn.svm import SVC
+        cf_base = SVC(kernel="linear")
+        cf_base.fit(X_train, y_train)
+        print('predicting')
+        result = cf_base.predict((X_test))
+        for j in range(len(result)):
+            if result[j] != y_test[j]:
+                error = error + 1
+        error_rate = error / batch_size
+        print("base error rate is " + str(error_rate))
+        print()
+
+        error = 0
+        print('running base svm rbf')
+        from sklearn.svm import SVC
+        cf_base = SVC(kernel="rbf")
+        cf_base.fit(X_train, y_train)
+        print('predicting')
+        result = cf_base.predict((X_test))
+        for j in range(len(result)):
+            if result[j] != y_test[j]:
+                error = error + 1
+        error_rate = error / batch_size
+        print("base error rate is " + str(error_rate))
+        print()
+
+    print ("Error rate of each iteration: " + str(error_arr))
+    print ("Average error rate:" + str(np.average(error_arr)))
+def compute_pca(data):
+    pca = PCA()
+    pca_data = pca.fit_transform(data)
+    return pca_data
 if __name__ == "__main__":
 
+    # data = np.load("eeg_data.npz")
+    # data_x = data['x']
+    # data_y = data['y']
+    #
+    # X = []
+    # y = []
+    #
+    # for i in range(len(data_y)):
+    #     if data_y[i] != -1:
+    #         y.append(1)
+    #     else:
+    #         y.append(-1)
+    #
+    # for i in data_x:
+    #     X.append(np.nan_to_num(i.flatten()))
+    #
+    # X_normalized = sklearn.preprocessing.normalize(X, norm='l2')
+    #
+    # X_pca = compute_pca(X_normalized)
+    # X_pca = X_normalized
 
-
+    # all_data, all_label = shuffle(X_pca, y)
+    # cross_val(all_data, all_label, 1240)
     data = np.load("eeg_data.npz")
     X = data['x']
     y = data['y']
@@ -139,19 +339,25 @@ if __name__ == "__main__":
     train_y = np.array(train_y)
     print(train_y.shape)
 
-    from sklearn.svm import SVC
-
-    cf = svm()
+    cf = svm_new(kernel="linear")
+    # cf = svm(kernel="linear")
     cf.fit(train_x, train_y)
-    p = cf.predict((train_x[:200]))
+    #
+    # from sklearn.svm import SVC
+    #
+    # cf = svm(kernel="linear")
+    # cf.fit(train_x, train_y)
+    # p = cf.predict((train_x[:200]))
+    #
+    # cnt = 0.
+    # for i,j in zip(p,train_y[:200]):
+    #     print(i,j)
+    #     if i == j:
+    #         cnt += 1
+    #
+    # print("cnt",cnt)
 
-    cnt = 0.
-    for i,j in zip(p,train_y[:200]):
-        print(i,j)
-        if i == j:
-            cnt += 1
 
-    print("cnt",cnt)
 
 
     # xc, yc = gen_two_clusters()
